@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Workspace with Resizable Console</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        /* Toolbar Grid/Flex for Mobile Responsiveness */
+        .toolbar {
+            background-color: #2d2d2d;
+            padding: 10px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            border-bottom: 2px solid #3d3d3d;
+            z-index: 100;
+            flex-wrap: wrap;
+        }
+        button {
+            background-color: #444;
+            color: #fff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+        .btn-save { background-color: #27ae60; }
+        .btn-delete { background-color: #c0392b; }
+        .btn-download { background-color: #2980b9; }
+
+        /* Workspace Core Wrapper */
+        .main-container {
+            display: flex;
+            flex: 1;
+            width: 100vw;
+            position: relative;
+            overflow: hidden;
+            background-color: #111;
+        }
+        
+        /* 💻 DESKTOP STYLES (Default) */
+        .editor-section {
+            width: 50%; 
+            min-width: 150px;
+            display: flex;
+            flex-direction: column;
+            background-color: #1e1e1e;
+            height: 100%;
+        }
+        .editor-section h3, .output-header {
+            background-color: #252526;
+            padding: 10px 15px;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #abb2bf;
+            border-bottom: 1px solid #333;
+        }
+        textarea {
+            flex: 1;
+            background-color: #1e1e1e;
+            color: #abb2bf;
+            border: none;
+            padding: 15px;
+            font-family: 'Consolas', monospace;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+        }
+        
+        /* Main Drag Handle (Editor vs Output) */
+        .resizer-main {
+            width: 12px;
+            background-color: #2d2d2d;
+            cursor: col-resize;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: none;
+        }
+        .resizer-main::after { content: "⋮"; color: #888; font-size: 16px; }
+        .resizer-main:hover, .resizer-main.dragging { background-color: #007acc; }
+
+        /* Output Section Container */
+        .output-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-width: 150px;
+        }
+        
+        /* Preview Wrapper */
+        .preview-container {
+            flex: 1; /* Dynamic sizing based on console height */
+            background-color: #ffffff;
+            position: relative;
+            min-height: 80px;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background-color: #ffffff;
+        }
+        
+        /* New Console Drag Handle (Horizontal Bar) */
+        .resizer-console {
+            height: 10px;
+            background-color: #2d2d2d;
+            cursor: row-resize;
+            z-index: 40;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: none;
+        }
+        .resizer-console::after { content: "⋯"; color: #888; font-size: 14px; line-height: 0; }
+        .resizer-console:hover, .resizer-console.dragging { background-color: #007acc; }
+
+        /* Resizable Console Panel */
+        .console-container {
+            height: 180px; /* Default desktop initial height */
+            min-height: 60px;
+            background-color: #0f0f0f;
+            display: flex;
+            flex-direction: column;
+            color: #00ff66;
+            font-family: monospace;
+            overflow: hidden;
+        }
+        .console-header {
+            background-color: #1a1a1a;
+            padding: 6px 15px;
+            font-size: 11px;
+            display: flex;
+            justify-content: space-between;
+            color: #999;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .console-log {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .log-item { margin-bottom: 6px; }
+        .log-error { color: #ff4d4d; }
+
+        /* 📱 MOBILE RESPONSIVE LAYOUT OVERRIDES */
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column; /* Stacks vertically on mobile */
+            }
+            .editor-section {
+                width: 100% !important; /* Full width */
+                height: 40%; /* Initial height percentage */
+                min-height: 100px;
+            }
+            .resizer-main {
+                width: 100%;
+                height: 14px; /* Horizontal strip for mobile thumb dragging */
+                cursor: row-resize;
+            }
+            .resizer-main::after { content: "⋯"; }
+            
+            .output-section {
+                width: 100% !important;
+                height: 60%; /* Takes remaining mobile space */
+            }
+            .console-container {
+                height: 120px; /* Default mobile initial height */
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <button class="btn-save" onclick="saveToLocal()">💾 Save</button>
+        <button class="btn-delete" onclick="deleteFromLocal()">🗑️ Delete</button>
+        <button class="btn-download" onclick="downloadFile()">📥 Download</button>
+        <span style="margin-left: auto; font-size: 11px; color: #777;">All Panels Drag Enabled</span>
+    </div>
+
+    <div class="main-container" id="workspace">
+        <!-- Editor Left / Top Side -->
+        <div class="editor-section" id="editor-panel">
+            <h3>Editor Workspace</h3>
+            <textarea id="code-editor" placeholder="<h1>Hello</h1>&#10;<script>console.log('Tested Console!');</script>"></textarea>
+        </div>
+
+        <!-- Main Workspace Drag Handle -->
+        <div class="resizer-main" id="drag-handle-main"></div>
+
+        <!-- Output Right / Bottom Side -->
+        <div class="output-section" id="output-panel">
+            <!-- Iframe Live Preview -->
+            <div class="preview-container">
+                <iframe id="live-preview"></iframe>
+            </div>
+            
+            <!-- New Console Resizer Bar -->
+            <div class="resizer-console" id="drag-handle-console"></div>
+
+            <!-- Integrated Dashboard Console -->
+            <div class="console-container" id="console-panel">
+                <div class="console-header">
+                    <span>LIVE CONSOLE</span>
+                    <span style="cursor:pointer; color:#ff4d4d;" onclick="clearConsole()">Clear</span>
+                </div>
+                <div class="console-log" id="console-display"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const editor = document.getElementById('code-editor');
+        const preview = document.getElementById('live-preview');
+        const resizerMain = document.getElementById('drag-handle-main');
+        const resizerConsole = document.getElementById('drag-handle-console');
+        const editorPanel = document.getElementById('editor-panel');
+        const outputPanel = document.getElementById('output-panel');
+        const consolePanel = document.getElementById('console-panel');
+        const consoleDisplay = document.getElementById('console-display');
+        const workspace = document.getElementById('workspace');
+
+        window.onload = () => {
+            const savedCode = localStorage.getItem('universal_editor_code');
+            if (savedCode) editor.value = savedCode;
+            updatePreview();
+        };
+
+        editor.addEventListener('input', updatePreview);
+
+// Keep the page/toolbar position stable when large HTML is pasted.
+editor.addEventListener('paste', function () {
+    const scrollY = window.scrollY;
+    const scrollX = window.scrollX;
+
+    requestAnimationFrame(() => {
+        window.scrollTo(scrollX, scrollY);
+        editor.scrollTop = editor.scrollTop;
+    });
+});
+
+        function updatePreview() {
+            const code = editor.value;
+            const injectorScript = `
+                <script>
+                    (function() {
+                        const sendLog = (type, args) => {
+                            window.parent.postMessage({
+                                type: type,
+                                data: args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ')
+                            }, '*');
+                        };
+                        console.log = (...args) => { sendLog('log', args); };
+                        console.error = (...args) => { sendLog('error', args); };
+                        console.warn = (...args) => { sendLog('warn', args); };
+                        window.onerror = function(msg, url, line) {
+                            sendLog('error', [msg + ' (Line ' + line + ')']);
+                            return false;
+                        };
+                    })();
+                <\/script>
+            `;
+            const doc = preview.contentDocument || preview.contentWindow.document;
+            doc.open();
+            doc.write(injectorScript + code);
+            doc.close();
+        }
+
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type) {
+                const logDiv = document.createElement('div');
+                logDiv.classList.add('log-item');
+                if (event.data.type === 'error') logDiv.classList.add('log-error');
+                logDiv.textContent = `> ${event.data.data}`;
+                consoleDisplay.appendChild(logDiv);
+                consoleDisplay.scrollTop = consoleDisplay.scrollHeight;
+            }
+        });
+
+        function clearConsole() { consoleDisplay.innerHTML = ''; }
+        function saveToLocal() { localStorage.setItem('universal_editor_code', editor.value); alert('Saved! 🎉'); }
+        function deleteFromLocal() { if(confirm('Delete cache?')) { localStorage.removeItem('universal_editor_code'); alert('Deleted! 🗑️'); } }
+        
+        function downloadFile() {
+            const blob = new Blob([editor.value], { type: 'text/html' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'index.html';
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+
+        /* --- 🚀 DUAL PANEL DRAG ENGINE (MOUSE & TOUCH SUPPORT) --- */
+        let activeDrag = null; // Track karega kaun sa panel drag ho raha hai ('main' ya 'console')
+
+        function startMainDrag(e) {
+    activeDrag = 'main';
+    resizerMain.classList.add('dragging');
+    preview.style.pointerEvents = 'none';
+    if (e.cancelable) e.preventDefault();
+}
+        function startConsoleDrag(e) {
+    activeDrag = 'console';
+    resizerConsole.classList.add('dragging');
+    preview.style.pointerEvents = 'none';
+    if (e.cancelable) e.preventDefault();
+}
+
+        function doDrag(e) {
+            if (!activeDrag) return;
+
+            // Prevent the mobile browser from scrolling the whole page
+            // while a resize handle is being dragged.
+            if (e.cancelable) e.preventDefault();
+
+            const isMobile = window.innerWidth <= 768;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            // 1. Handling Main Workspace Resizing (Left/Right on Desktop, Top/Bottom on Mobile)
+            if (activeDrag === 'main') {
+                if (isMobile) {
+                    const containerHeight = workspace.clientHeight;
+                    const pointerY = clientY - workspace.getBoundingClientRect().top;
+                    let heightPercentage = (pointerY / containerHeight) * 100;
+                    if (heightPercentage < 15) heightPercentage = 15;
+                    if (heightPercentage > 75) heightPercentage = 75;
+                    
+                    editorPanel.style.height = heightPercentage + '%';
+                    editorPanel.style.width = '100%';
+                } else {
+                    const containerWidth = workspace.clientWidth;
+                    const pointerX = clientX - workspace.getBoundingClientRect().left;
+                    let widthPercentage = (pointerX / containerWidth) * 100;
+                    if (widthPercentage < 15) widthPercentage = 15;
+                    if (widthPercentage > 85) widthPercentage = 85;
+                    
+                    editorPanel.style.width = widthPercentage + '%';
+                    editorPanel.style.height = '100%';
+                }
+            } 
+            
+            // 2. Handling Console Panel Resizing (Always vertical up/down resize)
+            else if (activeDrag === 'console') {
+                const outputRect = outputPanel.getBoundingClientRect();
+                // Calculate distance from bottom of the output panel box
+                const pointerYFromOutputTop = clientY - outputRect.top;
+                const totalOutputHeight = outputRect.height;
+                
+                let newConsoleHeight = totalOutputHeight - pointerYFromOutputTop;
+                
+                // Restrict console height constraints between 60px and 80% of preview card
+                if (newConsoleHeight < 60) newConsoleHeight = 60;
+                if (newConsoleHeight > totalOutputHeight * 0.8) newConsoleHeight = totalOutputHeight * 0.8;
+                
+                consolePanel.style.height = newConsoleHeight + 'px';
+            }
+        }
+
+        function stopDrag() {
+            if (activeDrag) {
+                resizerMain.classList.remove('dragging');
+                resizerConsole.classList.remove('dragging');
+                preview.style.pointerEvents = 'auto';
+                activeDrag = null;
+            }
+        }
+
+        // --- Event Binding Controls ---
+        // Main Resizer Triggers (Mouse & Mobile Touch)
+        resizerMain.addEventListener('mousedown', startMainDrag);
+        resizerMain.addEventListener('touchstart', startMainDrag, { passive: false });
+
+        // Console Resizer Triggers (Mouse & Mobile Touch)
+        resizerConsole.addEventListener('mousedown', startConsoleDrag);
+        resizerConsole.addEventListener('touchstart', startConsoleDrag, { passive: false });
+
+        // Global Event Movements capturing
+        document.addEventListener('mousemove', doDrag);
+        document.addEventListener('touchmove', doDrag, { passive: false });
+        document.addEventListener('mouseup', stopDrag);
+        document.addEventListener('touchend', stopDrag);
+    </script>
+</body>
+</html>
